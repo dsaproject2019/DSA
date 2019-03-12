@@ -81,8 +81,10 @@ begin
         
         
         -- Variaveis Tiago
-        variable v_cond_branch_add : std_logic_vector(7 downto 0) := (others => '1');
-        variable v_executed_inst :  std_logic_vector(32 downto 0) := (others => '0');
+        variable dependencies :  std_logic_vector(3 downto 0);
+        variable if_branch : std_logic_vector(7 downto 0);
+        variable else_branch : std_logic_vector(7 downto 0);
+        variable dependency : std_logic;
         
         
     begin       
@@ -101,16 +103,21 @@ begin
                     verify_size := 0;
                     temp_size_logic := "00000000";
                     hit_cache := 0;
+                    
+                    dependencies := "0000";
+                    if_branch := "11111111";
+                    else_branch := "11111111";
                              
                     -- Caso a ultima instrucao tenha sido um branch e o PC regrediu durante a execucao normal, verifica se nao ha uma configuracao existente a ser executada na DLP Engine                 
                     if (pc_atual(7 downto 0) < v_pc_anterior) and (previous_was_branch = 1) and v_DLP_Engine = 0 then
-
+                        previous_was_branch := 0;
+                        
                         --s_busca_mem <= '1';
                         v_id_afterbranch := pc_atual(7 downto 0); 
                         -- Caso exista uma configuracao, o DLP Engine e ativado                     
                         for i in 0 to 3 loop
                             if DSA_cache(i)(7 downto 0) = v_id_afterbranch(7 downto 0) then
-                              
+                                
                                 hit_cache := 1;
                                 v_DLP_Engine := 1;                          
 
@@ -131,7 +138,7 @@ begin
                                 
                                 exit;
                             else
-                               execute_DLP_Engine <= '0';
+                                execute_DLP_Engine <= '0';
                             end if; 
                         end loop;
                         
@@ -139,9 +146,9 @@ begin
                         if hit_cache = 0 then
                             --s_loop_analysis <= '1';
                             execute_DLP_Engine <= '0';
-
+                            
                             -- Caso tenha ocorrido uma instrucao do tipo store, salva o endereco de acesso para verificacao de vetorizacao
-                          
+                            
                             if inst = "1010" then 
                                 --s_st_mem <= '1';
                                 --s_access_addrrmemory <= '1';
@@ -158,8 +165,6 @@ begin
                             state <= DATA_COLLECTION;
                           
                         else
-                            previous_was_branch := 0;
-                          
                             if count_loop = 1 then
                                 count_loop := 0;
                                 execute_DLP_Engine <= '1';
@@ -195,12 +200,12 @@ begin
                                             exit;
                                         end if; 
                                     end loop;                             
+                                end if;
+                             
+                                state <= DATA_COLLECTION; 
+                                 
                             end if;
-                             
-                            state <= DATA_COLLECTION; 
-                             
                         end if;
-                    end if;
                     
                     else
                         execute_DLP_Engine <= '0';
@@ -212,7 +217,9 @@ begin
                     if inst = "0000" then                                  
                         previous_was_branch := 1;
                         state <= LOOP_DETECTION;                                   
-                    end if;                              
+                    else
+                        previous_was_branch := 0;
+                    end if;
 
                     if inst = "1111" then
                         state <= HALT;
@@ -230,8 +237,8 @@ begin
                     -- Fim da logica de leitura de instrucoes de entrada
                   
                     -- Comeco da analise de loop
-                    execute_DLP_Engine <= '0';
-
+                    execute_DLP_Engine <= '0';                    
+                    
                     -- Caso alguma instrucao do tipo add tenha ocorrido e apos (nao necessariamente em sequencia) uma instrucao cmps tenha ocorrido, a verificacao do tamanho do loop pode ser feita
                     if inst = "0001" and previous_was_add = 1 then
                         previous_was_add := 0;
@@ -311,32 +318,20 @@ begin
                         v_rdst_add := rdst;
                         v_data_add := data(7 downto 0);
                         previous_was_add := 1; 
-                        previous_was_branch := 0;
+                        --previous_was_branch := 0;
                         
                         state <= DATA_COLLECTION;
-                  
+                    
+                    
                     -- Caso tenha ocorrido uma instrucao do tipo branch 
-                    elsif inst = "0000" then 
-                        previous_was_branch := 1;
+                    --elsif inst = "0000" then 
+                        --previous_was_branch := 1;
                         
+                        --state <= DEPENDENCY_ANALYSIS;    -- Implementacao antiga
                         
-                        -- Implementacao atual
-                        
-                        if (v_id_afterbranch /= pc_atual(7 downto 0)) then
-                            
-                            if (v_cond_branch_add = "11111111") then
-                                state <= DEPENDENCY_ANALYSIS;
-                            else
-                                state <= MAPPING;
-                            end if;
-                        
-                        else
-                            v_cond_branch_add := pc_atual(7 downto 0);
-                        
-                        end if;
                     
                     -- Caso tenha ocorrido uma instrucao do tipo store, salva o endereco de acesso para verificacao de vetorizacao
-                    elsif inst = "1010" then 
+                    elsif inst = "1010" then
 
                         for i in 0 to 4 loop
                             if Verification_cache(i) = "1111111111111" then
@@ -347,7 +342,7 @@ begin
                             end if; 
                         end loop; 
                                       
-                        state <= DATA_COLLECTION;
+                        --state <= DATA_COLLECTION;
 
                     elsif inst = "1011" then
  
@@ -360,16 +355,67 @@ begin
                             end if; 
                         end loop;
                         
-                        state <= DATA_COLLECTION;
+                        --state <= DATA_COLLECTION;
                     
-                    else
-                        state <= DATA_COLLECTION;
+                    --else
+                        --state <= DATA_COLLECTION;
                     end if;
-                                   
+
                     if inst = "1111" then
                         state <= HALT;
+                    end if;   
+                    
+                    
+                    -- IMPLEMENTADO
+					
+                    if (previous_was_branch = 1) then
+						if (pc_atual(7 downto 0) < v_pc_anterior) then
+							if (pc_atual = v_id_afterbranch) then
+								if inst = "1010" then 
+									--s_st_mem <= '1';
+									--s_access_addrrmemory <= '1';
+									for i in 0 to 4 loop
+										if Verification_cache(i) = "1111111111111" then
+											Verification_cache(i)(7 downto 0) := address_data(7 downto 0);
+											Verification_cache(i)(8) := '0';
+											Verification_cache(i)(12 downto 9) := pc_atual(3 downto 0);
+											exit;
+										end if; 
+									end loop; 
+								end if;
+							
+								
+								if (if_branch = "11111111") and (else_branch = "11111111") then
+									state <= DEPENDENCY_ANALYSIS;
+								else
+									state <= MAPPING;
+								end if;
+							else
+								state <= LOOP_DETECTION;
+							end if;
+							
+						elsif (pc_atual(7 downto 0) = v_pc_anterior + 1) then
+                        
+							if_branch := v_pc_anterior;
+						
+                        else
+                            
+                            else_branch := v_pc_anterior;
+                        
+						end if;
                     end if;
-            
+					
+					
+					-- Caso tenha ocorrido uma instrucao do tipo branch 
+                    if inst = "0000" then 
+                        previous_was_branch := 1;
+					else
+						previous_was_branch := 0;
+					end if;
+					
+					-- Armazena pc anterior para logica de loop     
+                    v_pc_anterior := pc_atual(7 downto 0); 
+                    
                   
                 -------------------------------------------------------------------------------------------------------------------------------                                  
                 
@@ -385,7 +431,7 @@ begin
                     -- Caso o ID nao seja igual ao PC atual, e a instrucao anterior representou um salto, a verificacao de loop e desativada   
                     elsif (v_id_afterbranch /= pc_atual(7 downto 0)) and previous_was_branch = 1 then                      
                         previous_was_branch := 0;                    
-                        state <= LOOP_DETECTION;                    
+                        state <= LOOP_DETECTION;
                     else 
                         state <= DEPENDENCY_ANALYSIS;                      
                     end if;
@@ -423,26 +469,9 @@ begin
                                         end if;
                                     end if;
                                 end loop;
-                        --                           memory_gap := address_data - Verification_cache(i)(31 downto 0);               
-                        --                           
-                        --                           for j in 0 to 9 loop
-                        --                             if Verification_cache(j)(32) = '0' then
-                        --                                 preempt_address := Verification_cache(i)(31 downto 0);
-                        --                                 for z in 0 to 64 loop
-                        --                                     if z > loop_size then
-                        --                                         exit;
-                        --                                     end if;
-                        --                                     if preempt_address = Verification_cache(j)(31 downto 0) then
-                        --                                       state <= LOOP_DETECTION;
-                        --                                       exit;                                    
-                        --                                     end if;
-                        --                                     preempt_address := preempt_address + memory_gap;
-                        --                                 end loop; 
-                        --                             end if;
-                        --                           end loop;
                                
                             end if; 
-                            --preempt_address := "00000000000000000000000000000000";
+                            
                             memory_gap := 0;
                             module_address := 0;
                             preempt_address := 0;
@@ -520,19 +549,106 @@ begin
                     end if;
                 
                 
-                -- Implementacao atual
+                -- IMPLEMENTADO
                 
                 when MAPPING =>
                     
-                    -- Caso haja um branch 
-                    if (previous_was_branch = 1) then
+					execute_DLP_Engine <= '0';
+                    
+                    if (dependencies(2) = '1' and pc_atual = if_branch + 1) then
+                        dependencies(1) := '1';
+                    elsif (dependencies(0) = '1' and pc_atual = else_branch + 1) then
+                        dependencies(3) := '1';
+                    end if;
+                    
+                    -- Caso tenha ocorrido uma instrucao do tipo store, salva o endereco de acesso para verificacao de vetorizacao
+                    if inst = "1010" then
+
+                        for i in 0 to 4 loop
+                            if Verification_cache(i) = "1111111111111" then
+                                Verification_cache(i)(7 downto 0) := address_data(7 downto 0);
+                                Verification_cache(i)(8) := '0';
+                                Verification_cache(i)(12 downto 9) := pc_atual(3 downto 0);
+                                
+                                if (pc_atual > else_branch) then
+                                    dependencies(0) := '1';
+                                else
+                                    dependencies(2) := '1';
+                                end if;
+                                
+                                exit;
+                            end if; 
+                        end loop;
+                    
+                    -- Verifica se e uma instrucao do tipo LOAD, caso seja e esteja acessando um endereco atrelado a etapa anterior do loop
+                    -- o loop nao pode ser vetorizado                  
+
+                    elsif inst = "1011" and (dependencies(2)='1' and dependencies(0)='1') then
+                        dependency := '0';
                         
-                        previous_was_branch := 0;
-                        
-                        -- Caso o branch esteja dentro do range do loop (condicao)
-                        --if v_id_afterbranch /= pc_atual(7 downto 0) then
+                        for i in 0 to 4 loop
+                            if Verification_cache(i)(7 downto 0) = address_data(7 downto 0) and Verification_cache(i)(8) = '0' then
+                                state <= LOOP_DETECTION;
+                                dependency := '1';
+                                exit;
+                                
+                            -- PREEMPCAO DE DEPENDENCIA PARA TODOS ENDERECOS CARREGADOS    
+                            elsif Verification_cache(i)(8) = '1' and Verification_cache(i)(12 downto 9) = pc_atual(3 downto 0) and Verification_cache(i) /= "1111111111111" then 
+
+                                memory_gap :=  to_integer(unsigned(address_data(7 downto 0))) - to_integer(unsigned(Verification_cache(i)(7 downto 0)));               
+                               
+                                for j in 0 to 4 loop
+                                    if Verification_cache(j)(8) = '0' then
+                                        size_multiplier := to_integer(unsigned(loop_size)) - 3;
+                                        preempt_address := to_integer(unsigned(Verification_cache(i)(7 downto 0))) + memory_gap*size_multiplier;
+
+                                                                          
+                                        if preempt_address > to_integer(unsigned(Verification_cache(j)(7 downto 0))) then     
+                                            module_address := to_integer(unsigned(Verification_cache(j)(7 downto 0))) mod memory_gap;
+                                            
+                                            if module_address = 0 then
+                                                state <= LOOP_DETECTION;
+                                                dependency := '1';
+                                                exit;
+                                            end if;
+                                        end if;
+                                        
+                                        
+                                    end if;
+                                end loop;
+                               
+                            end if; 
+                            
+                            if dependency = '1' then
+                                if (pc_atual > else_branch) then
+                                    dependencies(1) := '0';
+                                elsif (pc_atual > if_branch) then
+                                    dependencies(3) := '0';
+                                end if;
+                            end if;
+                            
+                            memory_gap := 0;
+                            module_address := 0;
+                            preempt_address := 0;
+                        end loop;
                     end if;
 
+                    -- Caso a instrucao atual seja um branch
+                    if inst = "0000" then 
+                        previous_was_branch := 1;        
+
+                        if (dependencies = "1111") then
+                            state <= STORE_ID_EXECUTION;
+                        end if;
+					else
+						previous_was_branch := 0;
+                    end if;    
+					
+					
+                    if inst = "1111" then
+                        state <= HALT;
+                    end if;
+                    
                   
                 when EXECUTION =>
                      

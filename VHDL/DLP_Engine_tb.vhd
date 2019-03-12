@@ -8,7 +8,7 @@ use ieee.std_logic_textio.all;
 entity DLP_Engine_tb is
 end DLP_Engine_tb;
  
-architecture behavioral of DLP_Engine_tb is
+architecture tb of DLP_Engine_tb is
     
       signal clk : std_logic := '0';  
       signal rst: std_logic;
@@ -72,7 +72,7 @@ begin
             
           elsif clk'event and clk = '1' then
                   
-                  file_open(mem_inst, "/home/tiago/Desktop/UFSM/DSA/src/input_vectors.txt", read_mode); 
+                  file_open(mem_inst, "C:/DSA/src/input_vectors.txt", read_mode); 
                   
                   while line_counter < target_line loop
                     if not endfile(mem_inst) then 
@@ -111,4 +111,4 @@ begin
 
     end process;
       
-end behavioral;
+end tb;
